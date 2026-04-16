@@ -10,15 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { MOCK_ACCOUNT, MOCK_SITE_AUDIT_RESULT } from "@/lib/mock-data";
+import { MOCK_ACCOUNT } from "@/lib/mock-data";
+import type { MOCK_SITE_AUDIT_RESULT } from "@/lib/mock-data";
 
-type State = "idle" | "confirming" | "running" | "complete";
+type AuditResult = typeof MOCK_SITE_AUDIT_RESULT;
+type State = "idle" | "confirming" | "running" | "complete" | "error";
 
 export default function SiteAuditPage() {
   const [state, setState] = useState<State>("idle");
   const [url, setUrl] = useState("");
-  const [result, setResult] = useState<typeof MOCK_SITE_AUDIT_RESULT | null>(null);
-  const credits = MOCK_ACCOUNT.credits;
+  const [result, setResult] = useState<AuditResult | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const credits = MOCK_ACCOUNT.credits; // TODO: replace with real account hook
 
   function normalizeUrl(input: string): string {
     let val = input.trim();
@@ -36,13 +39,23 @@ export default function SiteAuditPage() {
     setState("confirming");
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setState("running");
-    const domain = normalizeUrl(url);
-    setTimeout(() => {
-      setResult({ ...MOCK_SITE_AUDIT_RESULT, domain });
+    setApiError(null);
+    try {
+      const res = await fetch("/api/tools/site-audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Unknown error");
+      setResult(json.data);
       setState("complete");
-    }, 3000);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Request failed");
+      setState("error");
+    }
   }
 
   function handleDownloadCsv() {
@@ -97,6 +110,14 @@ export default function SiteAuditPage() {
             </form>
           </CardContent>
         </Card>
+      )}
+
+      {state === "error" && (
+        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm space-y-2">
+          <p className="font-medium">Something went wrong</p>
+          <p>{apiError}</p>
+          <button className="underline text-xs" onClick={() => setState("idle")}>Try again</button>
+        </div>
       )}
 
       {state === "running" && (

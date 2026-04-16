@@ -10,9 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { MOCK_ACCOUNT, MOCK_SERP_RESULT } from "@/lib/mock-data";
+import { MOCK_ACCOUNT } from "@/lib/mock-data";
+import type { MOCK_SERP_RESULT } from "@/lib/mock-data";
 
-type State = "idle" | "confirming" | "running" | "complete";
+type SerpResult = typeof MOCK_SERP_RESULT;
+type State = "idle" | "confirming" | "running" | "complete" | "error";
 
 const LOCATIONS = [
   { code: "2840", label: "United States" },
@@ -31,8 +33,9 @@ export default function SerpAnalysisPage() {
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("2840");
   const [device, setDevice] = useState("desktop");
-  const [result, setResult] = useState<typeof MOCK_SERP_RESULT | null>(null);
-  const credits = MOCK_ACCOUNT.credits;
+  const [result, setResult] = useState<SerpResult | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const credits = MOCK_ACCOUNT.credits; // TODO: replace with real account hook
 
   const locationLabel = LOCATIONS.find((l) => l.code === location)?.label ?? location;
 
@@ -42,17 +45,29 @@ export default function SerpAnalysisPage() {
     setState("confirming");
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setState("running");
-    setTimeout(() => {
+    setApiError(null);
+    try {
+      const res = await fetch("/api/tools/serp-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: keyword.trim(), locationCode: location, device }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Unknown error");
       setResult({
-        ...MOCK_SERP_RESULT,
         keyword: keyword.trim(),
         location: locationLabel,
         device,
+        generatedAt: new Date().toISOString(),
+        results: json.data,
       });
       setState("complete");
-    }, 1800);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Request failed");
+      setState("error");
+    }
   }
 
   function handleDownloadCsv() {
@@ -130,6 +145,14 @@ export default function SerpAnalysisPage() {
             </form>
           </CardContent>
         </Card>
+      )}
+
+      {state === "error" && (
+        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm space-y-2">
+          <p className="font-medium">Something went wrong</p>
+          <p>{apiError}</p>
+          <button className="underline text-xs" onClick={() => setState("idle")}>Try again</button>
+        </div>
       )}
 
       {state === "running" && (

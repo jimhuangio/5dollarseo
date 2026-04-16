@@ -11,9 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { MOCK_ACCOUNT, MOCK_KEYWORD_RESULT } from "@/lib/mock-data";
+import { MOCK_ACCOUNT } from "@/lib/mock-data";
+import type { MOCK_KEYWORD_RESULT } from "@/lib/mock-data";
 
-type State = "idle" | "confirming" | "running" | "complete";
+type KeywordResult = typeof MOCK_KEYWORD_RESULT;
+type State = "idle" | "confirming" | "running" | "complete" | "error";
 
 const LOCATIONS = [
   { code: "2840", label: "United States" },
@@ -34,8 +36,9 @@ export default function KeywordResearchPage() {
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("2840");
   const [language, setLanguage] = useState("en");
-  const [result, setResult] = useState<typeof MOCK_KEYWORD_RESULT | null>(null);
-  const credits = MOCK_ACCOUNT.credits;
+  const [result, setResult] = useState<KeywordResult | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const credits = MOCK_ACCOUNT.credits; // TODO: replace with real account hook
 
   const locationLabel = LOCATIONS.find((l) => l.code === location)?.label ?? location;
   const languageLabel = LANGUAGES.find((l) => l.code === language)?.label ?? language;
@@ -46,13 +49,41 @@ export default function KeywordResearchPage() {
     setState("confirming");
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setState("running");
-    // Simulate API call
-    setTimeout(() => {
-      setResult({ ...MOCK_KEYWORD_RESULT, keyword: keyword.trim(), location: locationLabel, language: languageLabel });
+    setApiError(null);
+    try {
+      const res = await fetch("/api/tools/keyword-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: keyword.trim(), locationCode: location, languageCode: language }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Unknown error");
+      const { overview, relatedKeywords } = json.data;
+      setResult({
+        keyword: keyword.trim(),
+        location: locationLabel,
+        language: languageLabel,
+        generatedAt: new Date().toISOString(),
+        overview: {
+          searchVolume: overview.searchVolume,
+          cpc: overview.cpc,
+          competition: overview.competition,
+          keywordDifficulty: overview.keywordDifficulty,
+          intent: overview.intent,
+        },
+        monthlyTrends: (overview.monthlySearches ?? []).map((m: { year: number; month: number; searchVolume: number }) => ({
+          month: `${new Date(m.year, m.month - 1).toLocaleString("default", { month: "short" })} ${m.year}`,
+          volume: m.searchVolume,
+        })),
+        relatedKeywords,
+      });
       setState("complete");
-    }, 2000);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Request failed");
+      setState("error");
+    }
   }
 
   function handleDownloadCsv() {
@@ -133,6 +164,14 @@ export default function KeywordResearchPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {state === "error" && (
+        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm space-y-2">
+          <p className="font-medium">Something went wrong</p>
+          <p>{apiError}</p>
+          <button className="underline text-xs" onClick={() => setState("idle")}>Try again</button>
+        </div>
+      )}
 
       {state === "running" && (
         <div className="text-center py-16 space-y-3">

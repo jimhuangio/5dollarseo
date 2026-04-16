@@ -10,15 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { MOCK_ACCOUNT, MOCK_BACKLINK_RESULT } from "@/lib/mock-data";
+import { MOCK_ACCOUNT } from "@/lib/mock-data";
+import type { MOCK_BACKLINK_RESULT } from "@/lib/mock-data";
 
-type State = "idle" | "confirming" | "running" | "complete";
+type BacklinkResult = typeof MOCK_BACKLINK_RESULT;
+type State = "idle" | "confirming" | "running" | "complete" | "error";
 
 export default function BacklinkCheckerPage() {
   const [state, setState] = useState<State>("idle");
   const [domain, setDomain] = useState("");
-  const [result, setResult] = useState<typeof MOCK_BACKLINK_RESULT | null>(null);
-  const credits = MOCK_ACCOUNT.credits;
+  const [result, setResult] = useState<BacklinkResult | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const credits = MOCK_ACCOUNT.credits; // TODO: replace with real account hook
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,12 +29,27 @@ export default function BacklinkCheckerPage() {
     setState("confirming");
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setState("running");
-    setTimeout(() => {
-      setResult({ ...MOCK_BACKLINK_RESULT, domain: domain.trim() });
+    setApiError(null);
+    try {
+      const res = await fetch("/api/tools/backlink-checker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: domain.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Unknown error");
+      setResult({
+        domain: domain.trim(),
+        generatedAt: new Date().toISOString(),
+        ...json.data,
+      });
       setState("complete");
-    }, 2200);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Request failed");
+      setState("error");
+    }
   }
 
   function handleDownloadCsv() {
@@ -82,6 +100,14 @@ export default function BacklinkCheckerPage() {
             </form>
           </CardContent>
         </Card>
+      )}
+
+      {state === "error" && (
+        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm space-y-2">
+          <p className="font-medium">Something went wrong</p>
+          <p>{apiError}</p>
+          <button className="underline text-xs" onClick={() => setState("idle")}>Try again</button>
+        </div>
       )}
 
       {state === "running" && (
